@@ -13,9 +13,7 @@ export const comparepassword = async (password, existingPassword) => {
 };
 
 export const AuthCheck = async (req, res, next) => {
-  const token =
-    req.headers["x-access-token"] ||
-    req.headers["authorization"];
+  const token = req.headers["x-access-token"] || req.headers["authorization"];
 
   if (!token) {
     return res.status(400).json({
@@ -26,6 +24,7 @@ export const AuthCheck = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, process.env.SECRET_KEY);
     req.user = decoded;
+    // console.log(req.user)
   } catch (error) {
     return res.status(400).json({
       status: false,
@@ -33,4 +32,15 @@ export const AuthCheck = async (req, res, next) => {
     });
   }
   return next();
+};
+export const RoleCheck = (allowedRoles=[]) => {
+  return async (req, res, next) => {
+    if (!req.user || !allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({
+        status: false,
+        message: "Access Denied. You are not authorized.",
+      });
+    }
+    next();
+  };
 };

@@ -5,7 +5,9 @@ import mySqlPool from './app/config/db.js';
 import ejs from 'ejs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import UserRoute from './app/routes/UserRouter.js'
+import UserRoute from './app/routes/UserRouter.js';
+import CategoryRoute from './app/routes/CategoryRouter.js'
+import BlogRoute from './app/routes/BlogRouter.js'
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -31,6 +33,8 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 //routes
 app.use(UserRoute);
+app.use(CategoryRoute);
+app.use(BlogRoute);
 
 // post listening and db connection
 const port = process.env.port || 3009;

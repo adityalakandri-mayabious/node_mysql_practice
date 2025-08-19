@@ -7,30 +7,34 @@ import { sendResetPasswordMail } from "../helper/resetPasswordMail.js";
 //create User
 export const createUser = async (req, res) => {
   try {
-    const { name, email, password, city } = req.body;
+    const { name, email, password, role = "user", city } = req.body;
     if (!name || !email || !password || !city) {
       return res.status(400).json({
         status: false,
         message: "All fields are required.",
       });
     }
-    const existingEmail = await User.query(
+    //check existing mail
+    const [existingEmail] = await User.query(
       `SELECT * FROM user_table WHERE email = ?`,
       [email]
     );
-    if (existingEmail[0].email === email) {
+    if (existingEmail.length > 0) {
       return res.status(400).json({
         status: false,
         message: "Email already exist.",
       });
     }
 
+    //hash password
     const hashedPassword = await hashedpassword(password);
     const imagePath = req.file ? req.file.path.replace(/\\/g, "/") : null;
 
+    const is_verified = role === "admin";
+
     const [data] = await User.query(
-      `INSERT INTO user_table (name,email,password,image,city) VALUES(?,?,?,?,?)`,
-      [name, email, hashedPassword, imagePath, city]
+      `INSERT INTO user_table (name,email,password,role,image,city,is_verified) VALUES(?,?,?,?,?,?,?)`,
+      [name, email, hashedPassword, role, imagePath, city, is_verified]
     );
 
     const insertId = data.insertId;
@@ -40,20 +44,27 @@ export const createUser = async (req, res) => {
         message: "Error occured while inserting data.",
       });
     }
-    const [rows] = await User.query(`SELECT * FROM user_table WHERE id = ?`, [
+    //fetching inserted data
+    const [user] = await User.query(`SELECT * FROM user_table WHERE id = ?`, [
       insertId,
     ]);
-    const user = rows[0];
-    await sendEmailVerification(req, user);
+
+    //send mail if not admin
+    if (role !== "admin") {
+      await sendEmailVerification(req, user);
+    }
     return res.status(200).json({
       status: true,
-      message: "User Created and Email sent successfully .",
+      message:
+        role === "admin"
+          ? "Admin created successfully"
+          : "User created and mail sent successfully.",
       data: user,
     });
   } catch (error) {
     return res.status(500).json({
       status: false,
-      message: error.message,
+      message: error,
     });
   }
 };
@@ -104,14 +115,14 @@ export const verifyOtp = async (req, res) => {
       });
     }
 
-    const [rows] = await User.query(
+    const [user] = await User.query(
       `SELECT * FROM user_table WHERE email = ?`,
       [email]
     );
-    const user = rows[0];
+    console.log("From verify otp", user);
 
-    //check is if user is verified
-    if (user.is_verified === 1) {
+    //check if user is verified
+    if (user[0].is_verified === 1) {
       return res.status(400).json({
         status: false,
         message: "User is already verified.",
@@ -121,7 +132,7 @@ export const verifyOtp = async (req, res) => {
     //check otp entry
     const [emailVerfication] = await User.query(
       `SELECT * FROM otp_table WHERE user_id = ? AND otp = ?`,
-      [user.id, otp]
+      [user[0].id, otp]
     );
 
     // if otp does not match
@@ -135,11 +146,9 @@ export const verifyOtp = async (req, res) => {
 
     //check expiration time
     const currentTime = new Date();
-    console.log("Current Time", currentTime);
     const expirationTime = new Date(
       emailVerfication[0].created_at.getTime() + 15 * 60 * 1000
     );
-    console.log("Expiration Time", expirationTime);
 
     if (currentTime > expirationTime) {
       await sendEmailVerification(req, user);
@@ -151,9 +160,10 @@ export const verifyOtp = async (req, res) => {
 
     //update isverified status
     const [updateVerificationStatus] = await User.query(
-      `UPDATE user_table SET is_verified=? WHERE id =?`,
-      [1, user.id]
+      `UPDATE user_table SET is_verified = ? WHERE id =?`,
+      [1, user[0].id]
     );
+    console.log("from updateVerificationStatus", updateVerificationStatus);
     if (updateVerificationStatus.changedRows === 0) {
       return res.status(400).json({
         status: false,
@@ -161,7 +171,7 @@ export const verifyOtp = async (req, res) => {
       });
     }
     //delete otp from the table after it is verified
-    await User.query(`DELETE FROM otp_table WHERE user_id =?`, [user.id]);
+    await User.query(`DELETE FROM otp_table WHERE user_id =?`, [user[0].id]);
     return res.status(200).json({
       status: true,
       message: "OTP verified successfully.",
@@ -184,59 +194,52 @@ export const loginUser = async (req, res) => {
         message: "All fields are required.",
       });
     }
-    const [rows] = await User.query(
+    const [user] = await User.query(
       `SELECT * from user_table WHERE email = ?`,
       [email]
     );
-    if (rows.length === 0) {
+    const userData = user[0];
+    if (user.length === 0) {
       return res.status(400).json({
         status: false,
         message: "Invalid Email .",
       });
     }
-    const user = rows[0];
-    const isMatch = await comparepassword(password, user.password);
+    const isMatch = await comparepassword(password, userData.password);
     if (!isMatch) {
       return res.status(400).json({
         status: false,
         message: "Incorrect Password.",
       });
     }
-    if (user.is_verified === 0) {
+    if (userData.is_verified === 0) {
       return res.status(400).json({
         status: false,
         message: "Email is not verified.",
       });
     }
-    const token = jwt.sign(
-      {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        city: user.city,
-        image: user.image,
-      },
-      process.env.SECRET_KEY,
-      {
-        expiresIn: "1h",
-      }
-    );
+    const payload = {
+      id: userData.id,
+      name: userData.name,
+      email: userData.email,
+      city: userData.city,
+      image: userData.image,
+      role: userData.role,
+    };
+    const token = jwt.sign(payload, process.env.SECRET_KEY, {
+      expiresIn: "1h",
+    });
+
     return res.status(200).json({
       status: true,
       message: "Login Successful.",
-      data: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        city: user.city,
-        image: user.image,
-      },
+      data: payload,
       token: token,
     });
   } catch (error) {
     return res.status(500).json({
       status: false,
-      message: error.message,
+      message: error,
     });
   }
 };
@@ -245,16 +248,16 @@ export const loginUser = async (req, res) => {
 export const dashboard = async (req, res) => {
   try {
     const id = req.user.id;
-    const [rows] = await User.query(`SELECT * FROM user_table WHERE id = ?`, [
+    const [user] = await User.query(`SELECT * FROM user_table WHERE id = ?`, [
       id,
     ]);
-    if (rows.length === 0) {
+    if (user.length === 0) {
       return res.status(400).json({
         status: false,
         message: "User not found.",
       });
     }
-    const user = rows[0];
+
     return res.status(200).json({
       status: true,
       message: "Welcome to the dashboard.",
@@ -285,24 +288,23 @@ export const resetPasswordLink = async (req, res) => {
       });
     }
     //finding user with email
-    const [rows] = await User.query(
+    const [user] = await User.query(
       `SELECT * FROM user_table WHERE email = ?`,
       [email]
     );
-    if (rows.length === 0) {
+    if (user.length === 0) {
       return res.status(400).json({
         status: false,
         message: "User not found",
       });
     }
-    const user = rows[0];
-
+     
     //creating new token with unique secret key
-    const secret = user.id + process.env.SECRET_KEY;
-    const token = jwt.sign({ id: user.id }, secret, { expiresIn: "15m" });
+    const secret = user[0].id + process.env.SECRET_KEY;
+    const token = jwt.sign({ id: user[0].id }, secret, { expiresIn: "15m" });
 
     //generating link and sending mail
-    let resetLink = `${process.env.FRONT_END_HOST}/account/reset/${user.id}/${token}`;
+    let resetLink = `${process.env.FRONT_END_HOST}/account/reset/${user[0].id}/${token}`;
     console.log(resetLink);
     await sendResetPasswordMail(user, resetLink);
 
@@ -325,19 +327,18 @@ export const resetPassword = async (req, res) => {
     const { id, token } = req.params;
 
     //finding user with id
-    const [rows] = await User.query(`SELECT * FROM user_table WHERE id=? `, [
+    const [user] = await User.query(`SELECT * FROM user_table WHERE id=? `, [
       id,
     ]);
-    if (rows.length === 0) {
+    if (user.length === 0) {
       return res.status(400).json({
         status: false,
         message: "User not found",
       });
     }
-    const user = rows[0];
 
     //creating secret to verify the token
-    const newSecret = user.id + process.env.SECRET_KEY;
+    const newSecret = user[0].id + process.env.SECRET_KEY;
     jwt.verify(token, newSecret);
 
     if (!password || !confirmPassword) {
@@ -355,23 +356,25 @@ export const resetPassword = async (req, res) => {
     //hasing password
     const hashPassword = await hashedpassword(password);
 
-    const updatePassword = await User.query(`UPDATE user_table SET password = ? WHERE id = ?`,[hashPassword,user.id])
+    const [updatePassword] = await User.query(
+      `UPDATE user_table SET password = ? WHERE id = ?`,
+      [hashPassword, user[0].id]
+    );
 
-    if(updatePassword.changedRows===0){
+    if (updatePassword.changedRows === 0) {
       return res.status(400).json({
-        status:false,
-        message:'Error while updating password.'
-      })
+        status: false,
+        message: "Error while updating password.",
+      });
     }
     return res.status(200).json({
-      status:true,
-      message:'Password reset successful.'
-    })
-
+      status: true,
+      message: "Password reset successful.",
+    });
   } catch (error) {
     return res.status(400).json({
-      status:false,
-      message:error.message
-    })
+      status: false,
+      message: error.message,
+    });
   }
 };
