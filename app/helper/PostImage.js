@@ -15,12 +15,11 @@ const storage = multer.diskStorage({
         if(isValid){
             uploadError = null;
         }
-        cb(uploadError,'uploads/user')
+        cb(uploadError,'uploads/post')
     },
     filename: function(req,file,cb){
-        const originalName = file.originalname.split(' ').join('-');
         const extensionType = FILE_MAP_TYPE[file.mimetype];
-        cb(null,`${originalName}-${Date.now()}.${extensionType}`)
+        cb(null,`${Date.now()}.${extensionType}`)
     }
 })
 

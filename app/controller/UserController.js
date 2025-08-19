@@ -8,6 +8,7 @@ import { sendResetPasswordMail } from "../helper/resetPasswordMail.js";
 export const createUser = async (req, res) => {
   try {
     const { name, email, password, role = "user", city } = req.body;
+    console.log(req.body)
     if (!name || !email || !password || !city) {
       return res.status(400).json({
         status: false,

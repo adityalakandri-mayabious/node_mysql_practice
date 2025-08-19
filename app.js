@@ -20,6 +20,9 @@ const app = express();
 app.use(morgan('dev'));
 
 // body parser
+// app.use(bodyparser.json());
+// app.use(bodyparser.urlencoded())
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
