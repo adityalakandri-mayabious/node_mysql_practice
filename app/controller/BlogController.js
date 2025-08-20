@@ -1,4 +1,7 @@
 import Blog from "../config/db.js";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 //create blogs
 export const createBlog = async (req, res) => {
@@ -52,7 +55,15 @@ export const createBlog = async (req, res) => {
 //getall blogs
 export const getAllBlogs = async (req, res) => {
   try {
-    const [data] = await Blog.query(`SELECT * FROM blog_table`);
+    const [data] = await Blog.query(
+      `SELECT blog_table.id , blog_table.title , blog_table.description , category_table.category_name AS category , user_table.name AS author , blog_table.tags ,GROUP_CONCAT(blog_image.image) AS images
+      FROM blog_table
+      INNER JOIN user_table ON blog_table.authorId = user_table.id
+      INNER JOIN category_table ON blog_table.categoryId = category_table.id
+      LEFT JOIN blog_image ON blog_table.id = blog_image.blog_id
+      GROUP BY blog_table.id `
+    );
+    console.log(data);
     if (data.length === 0) {
       return res.status(400).json({
         status: false,
@@ -62,6 +73,7 @@ export const getAllBlogs = async (req, res) => {
     return res.status(200).json({
       status: true,
       message: "Blog Posts fetched successfully. ",
+      total: data.length,
       data: data,
     });
   } catch (error) {
@@ -76,9 +88,30 @@ export const getAllBlogs = async (req, res) => {
 export const getBlogsById = async (req, res) => {
   try {
     const { id } = req.params;
-    const [data] = await Blog.query(`SELECT * FROM blog_table WHERE id=?`, [
-      id,
-    ]);
+    const authorId = req.user.id;
+
+    const [authorCheck] = await Blog.query(
+      `SELECT * FROM blog_table WHERE id=?`,
+      [id]
+    );
+    if (authorId !== authorCheck[0].authorId) {
+      return res.status(400).json({
+        status: false,
+        message: "You are not authorised to do this operation.",
+      });
+    }
+
+    const [data] = await Blog.query(
+      `SELECT blog_table.id , blog_table.title , blog_table.description , category_table.category_name AS category , user_table.name AS author , blog_table.tags ,GROUP_CONCAT(blog_image.image) AS images
+      FROM blog_table
+      INNER JOIN user_table ON blog_table.authorId = user_table.id
+      INNER JOIN category_table ON blog_table.categoryId = category_table.id
+      LEFT JOIN blog_image ON blog_table.id = blog_image.blog_id
+      WHERE blog_table.id = ?
+      GROUP BY blog_table.id `,
+      [id]
+    );
+
     if (data.length === 0) {
       return res.status(400).json({
         status: false,
@@ -102,9 +135,11 @@ export const getBlogsById = async (req, res) => {
 export const updateBlog = async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, description, categoryId, tags } = req.body;
+    const { title, description, categoryId, tags, imagesToRemove } = req.body;
+    const newImages = req.files;
     const authorId = req.user.id;
 
+    //all fields are required
     if (!title || !description || !categoryId || !tags) {
       return res.status(400).json({
         status: false,
@@ -114,6 +149,7 @@ export const updateBlog = async (req, res) => {
 
     const tagString = Array.isArray(tags) ? tags.join(",") : tags;
 
+    //check data is available or not
     const [data] = await Blog.query(`SELECT * FROM blog_table WHERE id=?`, [
       id,
     ]);
@@ -123,22 +159,78 @@ export const updateBlog = async (req, res) => {
         message: "No data found.",
       });
     }
-    const [update] = await Blog.query(
-      `UPDATE blog_table SET title=?, description=?, categoryId =? ,tags=? WHERE id =?`,
-      [title, description, categoryId, tagString, id]
-    );
+
+    //check if the authorid is authenticated
     if (data[0].authorId !== authorId) {
       return res.status(400).json({
         status: false,
         message: "You are not authorised to edit this post.",
       });
     }
+
+    //update data
+    const [update] = await Blog.query(
+      `UPDATE blog_table SET title=?, description=?, categoryId =? ,tags=? WHERE id =?`,
+      [title, description, categoryId, tagString, id]
+    );
+
     if (update.affectedRows === 0) {
       return res.status(400).json({
-        status: true,
+        status: false,
         message: "Error updating blog post",
       });
     }
+
+    //remove selected images
+    const imagesToDelete =
+      typeof imagesToRemove === "string"
+        ? JSON.parse(imagesToRemove)
+        : imagesToRemove;
+
+    if (imagesToDelete && imagesToDelete.length > 0) {
+      for (let imagePath of imagesToDelete) {
+        // delete from db
+        await Blog.query(
+          `DELETE FROM blog_image WHERE blog_id =? AND image=?`,
+          [blog_id, imagePath]
+        );
+
+        // delete from filesystem
+        const __filename = fileURLToPath(import.meta.url);
+        const __dirname = path.dirname(__filename);
+        //path to  image
+        const fullPath = path.join(
+          __dirname,
+          "..",
+          "..",
+          "uploads",
+          "posts",
+          imagePath
+        );
+
+        if (fs.existsSync(fullPath)) {
+          fs.unlink(fullPath, (err) => {
+            if (err) {
+              console.log("Error deleting image.");
+            } else {
+              console.log("Image deleted successfully.");
+            }
+          });
+        }
+      }
+    }
+
+    //add new images
+    if (newImages && newImages.length > 0) {
+      for (let img of newImages) {
+        const imagePath = img.path.replace(/\\/g, "/");
+        await Blog.query(`INSERT INTO blog_image(image,id) VALUES(?,?)`, [
+          imagePath,
+          id,
+        ]);
+      }
+    }
+
     return res.status(200).json({
       status: true,
       message: "Blog Post updated successfully. ",
@@ -151,6 +243,7 @@ export const updateBlog = async (req, res) => {
   }
 };
 
+//delete blog
 export const deleteBlog = async (req, res) => {
   try {
     const { id } = req.params;

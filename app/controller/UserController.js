@@ -3,12 +3,15 @@ import { comparepassword, hashedpassword } from "../middleware/Auth.js";
 import jwt from "jsonwebtoken";
 import { sendEmailVerification } from "../helper/emailVerification.js";
 import { sendResetPasswordMail } from "../helper/resetPasswordMail.js";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 //create User
 export const createUser = async (req, res) => {
   try {
     const { name, email, password, role = "user", city } = req.body;
-    console.log(req.body)
+    console.log(req.body);
     if (!name || !email || !password || !city) {
       return res.status(400).json({
         status: false,
@@ -299,7 +302,7 @@ export const resetPasswordLink = async (req, res) => {
         message: "User not found",
       });
     }
-     
+
     //creating new token with unique secret key
     const secret = user[0].id + process.env.SECRET_KEY;
     const token = jwt.sign({ id: user[0].id }, secret, { expiresIn: "15m" });
@@ -374,6 +377,193 @@ export const resetPassword = async (req, res) => {
     });
   } catch (error) {
     return res.status(400).json({
+      status: false,
+      message: error.message,
+    });
+  }
+};
+
+//edit profile
+export const editProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const [user] = await User.query(`SELECT * FROM user_table WHERE id = ?`, [
+      userId,
+    ]);
+    if (userId.toString() !== id) {
+      return res.status(400).json({
+        status: false,
+        message: "You are not authoriesd to do this operation.",
+      });
+    }
+    if (user.length === 0) {
+      return res.status(400).json({
+        status: false,
+        message: "User not found",
+      });
+    }
+    return res.status(200).json({
+      status: true,
+      message: "User details fetched successfully.",
+      data: user,
+    });
+  } catch (error) {
+    return res.status(400).json({
+      status: false,
+      message: error.message,
+    });
+  }
+};
+
+//update profile
+export const updateProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const { name, image, city } = req.body;
+
+    const [user] = await User.query(`SELECT * FROM user_table WHERE id = ?`, [
+      id,
+    ]);
+    if (userId.toString() !== id) {
+      return res.status(400).json({
+        status: false,
+        message: "You are not authorised to do this operation",
+      });
+    }
+
+    if (user.length === 0) {
+      return res.status(400).json({
+        status: false,
+        message: "User not found.",
+      });
+    }
+
+    //image update handling
+    const imagePath = req.file ?req.file.path.replace(/\\/g, "/") : null;
+    let updatedImage = user[0].image; // defaulting updated image as existing image
+
+    try {
+      if (imagePath && imagePath !== user[0].image) {
+        //if new image is updated and new image is not equal to user.image
+        const __filename = fileURLToPath(import.meta.url);
+        const __dirname = path.dirname(__filename);
+        //path to old image
+        const oldImage = path.join(
+          __dirname,
+          "..",
+          "..",
+          "uploads",
+          "user",
+          path.basename(user[0].image)
+        );
+        console.log("Old image path:", oldImage);
+        console.log("File exists?", fs.existsSync(oldImage));
+        if (fs.existsSync(oldImage)) {
+          //checks if image exists
+          //deleting image
+          fs.unlink(oldImage, (err) => {
+            if (err) {
+              console.log("Error deleting image", err.message);
+            } else {
+              console.log("Image deleted successfully");
+            }
+          });
+        }
+        updatedImage = imagePath;
+      }
+    } catch (error) {
+      return res.status(500).json({
+        status: false,
+        message: `Error updating image',${error.message}`,
+      });
+    }
+
+    const [updateDetails] = await User.query(
+      `UPDATE user_table SET name=?,image=?,city=? WHERE id = ?`,
+      [name, updatedImage, city, id]
+    );
+
+    if (updateDetails.changedRows === 0) {
+      return res.status(400).json({
+        status: false,
+        message: "Error updating profile data.",
+      });
+    }
+    return res.status(200).json({
+      status: true,
+      message: "Profile updated successfully.",
+    });
+  } catch (error) {
+    return res.status(400).json({
+      status: false,
+      message: error.message,
+    });
+  }
+};
+
+//update password
+export const updatePassword = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const { oldPassword, newPassword, confirmPassword } = req.body;
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      return res.status(400).json({
+        status: false,
+        message: "All fields are required.",
+      });
+    }
+
+    const [user] = await User.query(`SELECT * FROM user_table WHERE id=?`, [
+      id,
+    ]);
+    if (userId.toString() !== id) {
+      return res.status(400).json({
+        status: false,
+        message: "You are not authorised to do this operation.",
+      });
+    }
+
+    //passsword matching
+    const isMatch = await comparepassword(oldPassword, user[0].password);
+    if (!isMatch) {
+      return res.status(400).json({
+        status: false,
+        message: "Password incorrect",
+      });
+    }
+    if (oldPassword === newPassword) {
+      return res.status(400).json({
+        status: false,
+        message: "Old Password and New Password cannot be same.",
+      });
+    }
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        status: false,
+        message: "New Password and Confirm Password did not match.",
+      });
+    }
+    const hashPass = await hashedpassword(newPassword);
+    const [updatePassword] = await User.query(
+      `UPDATE user_table SET password=? WHERE id = ?`,
+      [hashPass, id]
+    );
+
+    if (updatePassword.changedRows === 0) {
+      return res.status(400).json({
+        status: false,
+        message: "Error updating password.",
+      });
+    }
+    return res.status(200).json({
+      status: true,
+      message: "Password updated successfully.",
+    });
+  } catch (error) {
+    return res.status(500).json({
       status: false,
       message: error.message,
     });
