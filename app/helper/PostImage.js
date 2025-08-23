@@ -22,6 +22,8 @@ const storage = multer.diskStorage({
 });
 
 const Image = multer({ storage: storage });
-const blogImage = Image.array("images", 5);
+
+const blogImage = Image.array("image", 5);
+
 
 export default blogImage;
