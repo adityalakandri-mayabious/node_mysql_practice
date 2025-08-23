@@ -6,6 +6,7 @@ import { sendResetPasswordMail } from "../helper/resetPasswordMail.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { title } from "process";
 
 //create User
 export const createUser = async (req, res) => {
@@ -569,3 +570,4 @@ export const updatePassword = async (req, res) => {
     });
   }
 };
+

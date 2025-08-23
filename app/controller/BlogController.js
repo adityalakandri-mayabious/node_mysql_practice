@@ -258,7 +258,7 @@ export const deleteBlog = async (req, res) => {
         message: "Data not found.",
       });
     }
-    if (data[0].authorId !== authorId) {
+    if (data[0].authorId !== authorId && req.user.role !== "admin") {
       return res.status(400).json({
         status: false,
         message: "You are not authorised to delete this post.",
@@ -302,42 +302,6 @@ export const deleteBlog = async (req, res) => {
     return res.status(200).json({
       status: true,
       message: "Blog Data deleted successfully. ",
-    });
-  } catch (error) {
-    return res.status(400).json({
-      status: false,
-      message: error.message,
-    });
-  }
-};
-
-//get blogs by category
-// g.	List all categories along with the total number of posts in each category and the posts for that category.
-
-export const totalPostPerCategory = async (req, res) => {
-  try {
-    const [data] =
-      await Blog.query(`SELECT category_table.id AS category_id,category_table.category_name AS category_name ,COUNT(blog_table.id) AS totalPosts ,
-      JSON_ARRAYAGG(
-        JSON_OBJECT(
-        'blog_id',blog_table.id,
-        'blog_title',blog_table.title,
-        'blog_description',blog_table.description))AS posts
-        FROM category_table
-        LEFT JOIN blog_table ON category_table.id=blog_table.categoryId
-      GROUP BY category_table.id,category_table.category_name
-        `);
-
-    if (data.length === 0) {
-      return res.status(400).json({
-        status: false,
-        message: "Data no found.",
-      });
-    }
-    return res.status(200).json({
-      status: true,
-      message: "Data fetched successfully.",
-      data: data,
     });
   } catch (error) {
     return res.status(400).json({

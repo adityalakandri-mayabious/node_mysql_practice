@@ -11,6 +11,7 @@ import {
   updatePassword,
   updateProfile,
   verifyOtp,
+  viewCheck,
 } from "../controller/UserController.js";
 import { AuthCheck } from "../middleware/Auth.js";
 
@@ -26,5 +27,7 @@ router.post("/reset-password/:id/:token", resetPassword);
 router.get("/edit-profile/:id", AuthCheck, editProfile);
 router.put("/update-profile/:id", AuthCheck,userImage, updateProfile);
 router.put("/update-password/:id", AuthCheck, updatePassword);
+
+router.get('/view-check',viewCheck)
 
 export default router;
